@@ -1,0 +1,40 @@
+{
+  "type": "object",
+  "properties": {
+    "overview": {
+      "type": "string",
+      "description": "A concise, professional overview of the most important tech news in the batch."
+    },
+    "topUpdates": {
+      "type": "array",
+      "description": "The top 3 most important news articles.",
+      "maxItems": 3,
+      "items": {
+        "type": "object",
+        "properties": {
+          "title": { "type": "string" },
+          "url": { "type": "string" }
+        },
+        "required": ["title", "url"]
+      }
+    },
+    "articles": {
+      "type": "array",
+      "description": "List of relevant articles extracted from the batch.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "title": { "type": "string" },
+          "url": { "type": "string" },
+          "category": { "type": "string", "description": "e.g. AI, Cloud, Frontend, Backend, Tooling" },
+          "summary": { "type": "string", "description": "Max 2 sentences." },
+          "priority": { "type": "string", "enum": ["High", "Medium", "Low"] },
+          "relevanceScore": { "type": "integer", "description": "1-10, rate based on importance for a software engineer" },
+          "confidenceScore": { "type": "integer", "description": "1-10, how confident are you in this assessment" }
+        },
+        "required": ["title", "url", "category", "summary", "priority", "relevanceScore", "confidenceScore"]
+      }
+    }
+  },
+  "required": ["overview", "topUpdates", "articles"]
+}
