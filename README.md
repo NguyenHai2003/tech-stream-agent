@@ -75,7 +75,8 @@ To run the system automatically every day:
 Below is an example of the clean HTML email digest automatically generated and delivered by **Tech Stream Agent** to your inbox:
 
 <p align="center">
-  <img width="100%" alt="Tech Stream Agent Daily Email Report" src="" />
+  <img width="100%" alt="Tech Stream Agent Daily Email Report" src="<img width="1586" height="699" alt="screenshot_1779047010" src="https://github.com/user-attachments/assets/b4b7b824-36d2-48c7-8759-d59ae93266df" />
+" />
   <br>
   <em>Figure 1: Automated high-priority tech news summary received on May 17, 2026.</em>
 </p>
