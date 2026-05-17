@@ -44,25 +44,47 @@ The project is structured following Service-Oriented Architecture (SOA) principl
 ## 🚀 Getting Started
 
 ### 1. Sync Code with GAS
+
 The project uses Google's `clasp` tool for code management and synchronization.
+
 1. Install `clasp` globally: `npm install -g @google/clasp`
 2. Login to your Google account: `clasp login`
 3. Push code to your current GAS project: `clasp push`
 
 ### 2. Configure Environment Variables (Script Properties)
+
 To operate the system, access the GAS editor on the web -> **Project Settings** -> **Script Properties** and add the following variables:
+
 - `GEMINI_API_KEY`: API Key for Google Gemini.
 - `NEWS_API_KEY`: API Key for NewsAPI.
 - `SPREADSHEET_ID`: ID of the Google Sheet used for storage.
 - `RECIPIENT_EMAIL`: Email address to receive the daily reports.
 
 ### 3. Setup Automation (Triggers)
+
 To run the system automatically every day:
+
 1. Go to the **Triggers** section in the left menu of the GAS Editor.
 2. Add a new trigger for the `runTechStreamAgent` function.
 3. Choose the event source as `Time-driven` -> `Day timer` -> Select your preferred time window.
 
 ---
+
+## 📸 Email Report Demo
+
+Below is an example of the clean HTML email digest automatically generated and delivered by **Tech Stream Agent** to your inbox:
+
+<p align="center">
+  <img width="100%" alt="Tech Stream Agent Daily Email Report" src="" />
+  <br>
+  <em>Figure 1: Automated high-priority tech news summary received on May 17, 2026.</em>
+</p>
+
+### Key elements included in the report:
+
+- **Overview (AI Report):** A high-level macro summary of the day's tech landscape synthesized by Gemini.
+- **Quick TL;DR:** A bulleted list of jump-links for rapid scanning.
+- **Top News (High Priority):** Deep-dive summaries categorized by tags (e.g., `Tooling`, `Career`, `General Tech`, `AI`) with clear actionable insights for developers and tech leaders.
 
 ## 🤖 Agentic Navigation Portal
 
@@ -71,5 +93,6 @@ To run the system automatically every day:
 > Before making any changes in the `/src` source code, you **MUST** read through the documentation in the `.agent-skill` directory to fully understand the specific limitations of Google Apps Script and the project's workflow.
 >
 > Please refer immediately to the following standard documents:
+>
 > 1. 🎯 **[SKILL.md](./.agent-skill/SKILL.md)**: Core rules defining the data flow and Dispatcher pattern.
 > 2. ⚠️ **[GAS Limits](./.agent-skill/references/gas-limits.md)**: Document explaining the 6-minute GAS limits and API quotas.
