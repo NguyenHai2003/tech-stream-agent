@@ -55,14 +55,95 @@ The project uses Google's `clasp` tool for code management and synchronization.
 
 To operate the system, access the GAS editor on the web -> **Project Settings** -> **Script Properties** and add the following variables:
 
-- `GEMINI_API_KEY`: API Key for Google Gemini.
+- `GEMINI_API_KEY`: API Key for Google Gemini (supporting `gemini-3-flash-preview` and `gemini-embedding-001`).
 - `NEWS_API_KEY`: API Key for NewsAPI.
 - `SPREADSHEET_ID`: ID of the Google Sheet used for storage.
 - `RECIPIENT_EMAIL`: Email address to receive the daily reports.
+- `SUPABASE_URL`: Supabase project REST URL (`https://<project-ref>.supabase.co`).
+- `SUPABASE_KEY`: Supabase `service_role` or `anon` API key.
+- `TELEGRAM_BOT_TOKEN`: Telegram Bot Token from BotFather.
 
-### 3. Setup Automation (Triggers)
+### 3. Setup Supabase pgvector (RAG Storage)
 
-To run the system automatically every day:
+Execute the following SQL in your Supabase SQL editor to initialize the `articles` table and similarity search RPC function:
+
+```sql
+create extension if not exists vector;
+
+create table if not exists articles (
+  id text primary key,
+  title text,
+  url text,
+  category text,
+  summary text,
+  published_at text,
+  embedding vector(768) -- Matches gemini-embedding-001 with outputDimensionality: 768
+);
+
+create or replace function match_articles (
+  query_embedding vector(768),
+  match_threshold float,
+  match_count int
+)
+returns table (
+  id text,
+  title text,
+  url text,
+  category text,
+  summary text,
+  similarity float
+)
+language sql stable
+as $$
+  select
+    articles.id,
+    articles.title,
+    articles.url,
+    articles.category,
+    articles.summary,
+    1 - (articles.embedding <=> query_embedding) as similarity
+  from articles
+  where 1 - (articles.embedding <=> query_embedding) > match_threshold
+  order by articles.embedding <=> query_embedding
+  limit match_count;
+$$;
+```
+
+### 4. Setup Telegram Webhook via Cloudflare Worker (Zero-302 Proxy)
+
+Google Apps Script Web Apps mandatorily return an HTTP `302 Moved Temporarily` redirect for `ContentService` and `HtmlService`. To prevent Telegram Webhook from treating 302 as an error and getting stuck in infinite retry loops (`pending_update_count > 0`), deploy a free Cloudflare Worker proxy:
+
+1. Deploy your GAS script as a Web App: **Execute as: Me** -> **Who has access: Anyone**. Copy the Web App URL.
+2. Create a free Cloudflare Worker and insert this proxy code:
+
+```javascript
+export default {
+  async fetch(request, env, ctx) {
+    // INSERT YOUR GAS WEB APP URL HERE:
+    const GAS_URL = "https://script.google.com/macros/s/AKfycbyiZEMj.../exec";
+    
+    if (request.method === "POST") {
+      const payload = await request.text();
+      // Cloudflare automatically follows Google's 302 redirects
+      await fetch(GAS_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: payload
+      });
+      // Return absolute HTTP 200 OK to Telegram
+      return new Response("OK", { status: 200 });
+    }
+    return new Response("Cloudflare Proxy for Telegram Bot is running perfectly!", { status: 200 });
+  }
+};
+```
+
+3. Register your webhook with Telegram using your `.workers.dev` URL:
+   `https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/setWebhook?url=<CLOUDFLARE_WORKER_URL>&drop_pending_updates=true`
+
+### 5. Setup Automation (Triggers)
+
+To run the daily news collection and email dispatch automatically:
 
 1. Go to the **Triggers** section in the left menu of the GAS Editor.
 2. Add a new trigger for the `runTechStreamAgent` function.

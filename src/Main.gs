@@ -3,6 +3,13 @@
  * Entry point and Dispatcher for Tech Stream Agent.
  */
 
+function forceAuthorize() {
+  ScriptApp.getProjectTriggers();
+  SpreadsheetApp.getActiveSpreadsheet();
+  UrlFetchApp.fetch("https://httpbin.org/get");
+  MailApp.getRemainingDailyQuota();
+}
+
 /**
  * Main function to run the entire system (setup with a daily trigger).
  */
@@ -83,8 +90,120 @@ function runTechStreamAgent() {
       AppLogger.info(task, "No important news to send via email.");
     }
 
-    AppLogger.info(task, "Finished successfully.");
+    // 6. Queue articles for Vector DB embedding
+    if (articles.length > 0) {
+      // Create records with basic ID
+      const recordsToEmbed = articles.map(a => ({
+        id: Utilities.getUuid(),
+        title: a.title,
+        url: a.url,
+        summary: a.summary || "",
+        category: a.category || "Uncategorized",
+        published_at: new Date().toISOString()
+      }));
+
+      const props = PropertiesService.getScriptProperties();
+      props.setProperty("PENDING_VECTOR_QUEUE", JSON.stringify(recordsToEmbed));
+      
+      // Start processing the queue immediately
+      processPendingQueue();
+    }
+
+    AppLogger.info(task, "Main flow finished successfully.");
   } catch (e) {
     AppLogger.error(task, e);
   }
+}
+
+/**
+ * Process the pending queue of articles to embed and push to Vector DB.
+ * Designed to handle execution timeouts via Trigger Chaining.
+ */
+function processPendingQueue() {
+  const task = "Main.processPendingQueue";
+  const startTime = Date.now();
+  const props = PropertiesService.getScriptProperties();
+  const queueStr = props.getProperty("PENDING_VECTOR_QUEUE");
+
+  if (!queueStr) {
+    AppLogger.info(task, "No pending vector queue found.");
+    return;
+  }
+
+  let queue = [];
+  try {
+    queue = JSON.parse(queueStr);
+  } catch (e) {
+    AppLogger.error(task, "Failed to parse vector queue.", e);
+    props.deleteProperty("PENDING_VECTOR_QUEUE");
+    return;
+  }
+
+  if (queue.length === 0) {
+    props.deleteProperty("PENDING_VECTOR_QUEUE");
+    return;
+  }
+
+  AppLogger.info(task, `Processing vector queue with ${queue.length} items.`);
+  const processedRecords = [];
+  let index = 0;
+
+  while (index < queue.length) {
+    // Check timeout
+    if (Date.now() - startTime > Config.EXECUTION_TIMEOUT_MS) {
+      AppLogger.warn(task, "Approaching execution timeout. Chaining trigger...");
+      
+      // Save remaining queue
+      const remainingQueue = queue.slice(index);
+      props.setProperty("PENDING_VECTOR_QUEUE", JSON.stringify(remainingQueue));
+
+      // Push already processed ones in this run to avoid losing them
+      if (processedRecords.length > 0) {
+        SupabaseService.upsertVectors(processedRecords);
+      }
+
+      // Create trigger to resume in 1 minute
+      ScriptApp.newTrigger("processPendingQueue")
+        .timeBased()
+        .after(60 * 1000)
+        .create();
+      
+      return;
+    }
+
+    const item = queue[index];
+    try {
+      const textToEmbed = `Title: ${item.title}\nCategory: ${item.category}\nSummary: ${item.summary}`;
+      const embedding = GeminiService.generateEmbeddings(textToEmbed);
+
+      if (embedding) {
+        item.embedding = embedding;
+        processedRecords.push(item);
+      } else {
+        AppLogger.warn(task, `Failed to generate embedding for: ${item.title}`);
+      }
+    } catch (e) {
+      AppLogger.error(task, `Error processing embedding for: ${item.title}`, e);
+    }
+
+    index++;
+  }
+
+  // Push all processed records to Supabase
+  if (processedRecords.length > 0) {
+    SupabaseService.upsertVectors(processedRecords);
+  }
+
+  // Clear queue and triggers if all done
+  props.deleteProperty("PENDING_VECTOR_QUEUE");
+  
+  // Cleanup any left-over triggers for this function
+  const triggers = ScriptApp.getProjectTriggers();
+  for (let i = 0; i < triggers.length; i++) {
+    if (triggers[i].getHandlerFunction() === "processPendingQueue") {
+      ScriptApp.deleteTrigger(triggers[i]);
+    }
+  }
+
+  AppLogger.info(task, "Finished processing vector queue.");
 }

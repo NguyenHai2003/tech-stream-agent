@@ -125,4 +125,125 @@ Requirements:
       return null;
     }
   },
+
+  /**
+   * Generate vector embeddings for a given text.
+   * @param {string} text Text to embed.
+   * @returns {number[]|null} Array of floats representing the embedding, or null on error.
+   */
+  generateEmbeddings: function (text) {
+    if (!text) return null;
+    const task = "GeminiService.generateEmbeddings";
+
+    try {
+      const url = `${Config.GEMINI_EMBEDDING_ENDPOINT}?key=${Config.GEMINI_API_KEY}`;
+      const requestBody = {
+        model: "models/gemini-embedding-001",
+        content: {
+          parts: [{ text: text }]
+        },
+        outputDimensionality: 768
+      };
+
+
+      const response = CommonUtils.retryRequest(
+        () => {
+          const currentResponse = UrlFetchApp.fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            payload: JSON.stringify(requestBody),
+            muteHttpExceptions: true,
+          });
+
+          const responseCode = currentResponse.getResponseCode();
+          if (responseCode !== 200) {
+            throw new Error(`Gemini Embedding Error (${responseCode}): ${currentResponse.getContentText()}`);
+          }
+          return currentResponse;
+        },
+        Config.RETRY_MAX_ATTEMPTS,
+        Config.RETRY_BASE_DELAY_MS
+      );
+
+      const jsonResponse = JSON.parse(response.getContentText());
+      if (jsonResponse.embedding && jsonResponse.embedding.values) {
+        return jsonResponse.embedding.values;
+      }
+      return null;
+    } catch (e) {
+      AppLogger.error(task, e);
+      return null;
+    }
+  },
+
+  /**
+   * Synthesize an answer using RAG context.
+   * @param {string} query User query.
+   * @param {Object[]} contextArticles Array of article metadata from Vector DB.
+   * @returns {string} The final answer.
+   */
+  answerWithRAG: function (query, contextArticles) {
+    const task = "GeminiService.answerWithRAG";
+    if (!contextArticles || contextArticles.length === 0) {
+      return "Tôi không tìm thấy thông tin phù hợp trong cơ sở dữ liệu để trả lời câu hỏi này.";
+    }
+
+    try {
+      const contextText = contextArticles.map((a, i) => {
+        return `[${i + 1}] Title: ${a.title}\nURL: ${a.url}\nSummary: ${a.summary || ""}\nCategory: ${a.category || ""}\n`;
+      }).join("\n");
+
+      const prompt = `You are a helpful Tech Assistant. Answer the user's question using ONLY the context provided below.
+If the answer cannot be found in the context, politely state that you don't know based on the current knowledge base.
+Provide citations by mentioning the article titles or URLs if useful.
+
+Context:
+${contextText}
+
+User Question: ${query}
+
+Answer in Vietnamese:`;
+
+      const requestBody = {
+        contents: [
+          {
+            role: "user",
+            parts: [{ text: prompt }],
+          },
+        ],
+        generationConfig: {
+          temperature: 0.2, // Low temperature for more factual answers
+        },
+      };
+
+      const response = CommonUtils.retryRequest(
+        () => {
+          const url = `${Config.GEMINI_API_ENDPOINT}?key=${Config.GEMINI_API_KEY}`;
+          const currentResponse = UrlFetchApp.fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            payload: JSON.stringify(requestBody),
+            muteHttpExceptions: true,
+          });
+
+          const responseCode = currentResponse.getResponseCode();
+          if (responseCode !== 200) {
+            throw new Error(`Gemini RAG Error (${responseCode}): ${currentResponse.getContentText()}`);
+          }
+          return currentResponse;
+        },
+        Config.RETRY_MAX_ATTEMPTS,
+        Config.RETRY_BASE_DELAY_MS
+      );
+
+      const jsonResponse = JSON.parse(response.getContentText());
+      if (jsonResponse.candidates && jsonResponse.candidates.length > 0) {
+        return jsonResponse.candidates[0].content.parts[0].text;
+      }
+      return "Xin lỗi, tôi không thể tạo câu trả lời vào lúc này.";
+    } catch (e) {
+      AppLogger.error(task, e);
+      return "Đã xảy ra lỗi khi cố gắng trả lời câu hỏi của bạn.";
+    }
+  }
 };

@@ -23,7 +23,7 @@ function validateGasCode() {
     const content = fs.readFileSync(path.join(codeDir, file), 'utf8');
     
     // Rule 1: No axios or fetch (must use UrlFetchApp)
-    if (content.includes('axios.') || content.match(/\bfetch\(/)) {
+    if (content.includes('axios.') || content.match(/(?<!UrlFetchApp\.)\bfetch\(/)) {
       console.error(`[ERROR] File ${file} uses 'axios' or 'fetch()'.`);
       console.error('-> FIX: Replace with UrlFetchApp.fetch() as required by Google Apps Script constraints.');
       hasError = true;

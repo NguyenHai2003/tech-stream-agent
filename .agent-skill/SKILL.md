@@ -11,6 +11,8 @@ You are acting as the developer for the Tech Stream Agent. Do not explain basic 
 - **Data Flow**: `NewsAPI` -> `Filter (History Sheet)` -> `Gemini (Batch)` -> `Dispatcher` -> `SpreadsheetApp/MailApp`.
 - **Deduplication**: By default, always read the `History` tab first. Filter out any NewsAPI articles whose URLs already exist in the `History` tab.
 - **Batching**: Never send articles 1-by-1 to Gemini. Combine the title and description of 10-15 new articles into a single prompt string.
+- **RAG Architecture**: Uses Gemini Embedding (`gemini-embedding-001` configured to `outputDimensionality: 768`) matching Supabase pgvector (`vector(768)`).
+- **Zero-302 Webhook Proxy**: Telegram Webhook requires a Cloudflare Worker Proxy in front of the GAS Web App URL to intercept Google's mandatory `302 Moved Temporarily` redirects and return absolute `HTTP 200 OK`. Always use `HtmlService.createHtmlOutput("OK")` instead of `ContentService` in `doPost(e)`.
 
 ## 2. Google Apps Script Constraints
 - **APIs**: Use `UrlFetchApp.fetch()` instead of `axios` or standard `fetch()`. Use `PropertiesService.getScriptProperties()` for secrets.
