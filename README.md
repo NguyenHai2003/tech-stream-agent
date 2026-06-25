@@ -60,9 +60,9 @@ The project is structured following Service-Oriented Architecture (SOA) principl
                     ┌───────────────┼───────────────┐
                     │               ▼               │
                     │  ┌─────────────────────────┐  │
-                    │  │    Cloudflare Worker     │  │
-                    │  │   (Zero-302 Proxy)       │  │
-                    │  └────────────┬──────────────┘  │
+                    │  │    Cloudflare Worker    │  │
+                    │  │   (Zero-302 Proxy)      │  │
+                    │  └────────────┬────────────┘  │
                     │               ▼               │
                     │      ┌──────────────┐         │
                     │      │  Telegram    │         │
@@ -248,7 +248,7 @@ Below is an example of the clean HTML email digest automatically generated and d
 ## 💬 Telegram Bot Demo
 
 <p align="center">
-  <img width="100%" alt="Tech Stream Agent Telegram Bot RAG Demo" src="INSERT_IMAGE_URL_HERE" />
+  <img width="270" height="600" alt="Tech Stream Agent Telegram Bot RAG Demo" src="https://github.com/user-attachments/assets/bbb53363-9d73-405f-b33e-10a81e41faec" />
   <br>
   <em>Figure 2: Tech Stream Agent answering tech news questions interactively via Telegram Bot.</em>
 </p>
