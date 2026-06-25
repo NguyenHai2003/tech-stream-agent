@@ -1,6 +1,6 @@
 # Tech Stream Agent 🚀
 
-Welcome to **Tech Stream Agent**! This is an automated technology news processing pipeline running on Google Apps Script (GAS). The system collects news from NewsAPI, utilizes AI (Gemini) to summarize, categorize, and score articles, then stores the data in Google Sheets and sends daily email reports.
+Welcome to **Tech Stream Agent**! This is an automated, end-to-end technology news pipeline running on Google Apps Script (GAS). The system collects news from NewsAPI, utilizes AI (Gemini) to summarize, categorize, and score articles, stores the data in Google Sheets, embeds articles into a **Supabase pgvector** database, and enables interactive Q&A via a **Telegram Bot** powered by **RAG (Retrieval-Augmented Generation)**.
 
 The project is structured following Service-Oriented Architecture (SOA) principles and is fully localized in English, optimized for stability and AI integration.
 
@@ -13,7 +13,75 @@ The project is structured following Service-Oriented Architecture (SOA) principl
 - 🛡️ **Advanced Deduplication**: Implements URL normalization and SHA-256 hashing to prevent reprocessing old news, optimizing API costs.
 - 📊 **Automated Storage**: Writes data directly to Google Sheets for tracking and management.
 - 📧 **Daily Reporting**: Automatically generates and sends clean HTML email summaries of the most important (High priority) news every morning natively via GAS.
-- 🔄 **High Reliability**: Integrates Retry mechanisms with Exponential Backoff for all API calls (NewsAPI & Gemini) and a robust `AppLogger` supporting both Cloud Logging and standard script logs.
+- 🗄️ **Vector Database (Supabase pgvector)**: After AI processing, articles are embedded using `gemini-embedding-001` (768 dimensions) and upserted into a Supabase `articles` table with pgvector for semantic search.
+- 🤖 **Telegram Bot with RAG**: Users can ask questions in natural language via Telegram. The bot embeds the query, performs similarity search against the vector database, and synthesizes a context-aware answer using Gemini — all in real-time.
+- ⚡ **Placeholder-then-Edit UX**: The Telegram bot sends an instant "⏳ Searching..." placeholder, then edits it with the final RAG answer — keeping the chat clean with a single message.
+- 🛡️ **HTML Resilience**: Automatic fallback from HTML to Plain Text if Telegram rejects the response due to entity parse errors (HTTP 400).
+- 🔄 **High Reliability**: Integrates Retry mechanisms with Exponential Backoff for all API calls (NewsAPI, Gemini & Supabase) and a robust `AppLogger` supporting both Cloud Logging and standard script logs.
+- ⏱️ **Trigger Chaining**: The vector embedding queue is processed with execution timeout awareness (4.5 min). If the GAS 6-minute limit approaches, remaining items are saved and a chained trigger resumes processing automatically.
+
+---
+
+## 🏗️ System Architecture
+
+```text
+                      ┌──────────────┐
+                      │   NewsAPI    │
+                      └──────┬───────┘
+                             │ Fetch articles
+                             ▼
+┌─────────────────────────────────────────────────────────────┐
+│                    Google Apps Script                        │
+│                                                             │
+│  ┌──────────┐    ┌────────────────┐    ┌────────────────┐   │
+│  │ Main.gs  │───▶│ GeminiService  │───▶│ SheetService   │   │
+│  │(Trigger) │    │ (Analyze Batch)│    │ (Google Sheets)│   │
+│  └────┬─────┘    └───────┬────────┘    └────────────────┘   │
+│       │                  │                                  │
+│       │                  ▼                                  │
+│       │          ┌────────────────┐    ┌────────────────┐   │
+│       │          │ GeminiService  │───▶│ SupabaseService│   │
+│       │          │ (Embedding)    │    │ (Upsert Vector)│   │
+│       │          └────────────────┘    └───────┬────────┘   │
+│       │                                        │            │
+│       ▼                                        ▼            │
+│  ┌──────────┐                         ┌────────────────┐    │
+│  │MailService│                        │   Supabase     │    │
+│  │(Email)    │                        │   pgvector DB  │    │
+│  └──────────┘                         └───────┬────────┘    │
+│                                               │             │
+│  ┌───────────────────┐    ┌───────────────┐   │             │
+│  │WebhookDispatcher  │───▶│TelegramBotApp │───┘             │
+│  │(doPost)           │    │(RAG Workflow) │                  │
+│  └───────────────────┘    └───────┬───────┘                  │
+│                                   │                          │
+└───────────────────────────────────┼──────────────────────────┘
+                                    │
+                    ┌───────────────┼───────────────┐
+                    │               ▼               │
+                    │  ┌─────────────────────────┐  │
+                    │  │    Cloudflare Worker     │  │
+                    │  │   (Zero-302 Proxy)       │  │
+                    │  └────────────┬──────────────┘  │
+                    │               ▼               │
+                    │      ┌──────────────┐         │
+                    │      │  Telegram    │         │
+                    │      │  Bot API     │         │
+                    │      └──────────────┘         │
+                    └───────────────────────────────┘
+```
+
+### RAG Workflow (Telegram Q&A)
+
+```text
+User Question ──▶ Gemini Embedding (768d) ──▶ Supabase pgvector (Similarity Search)
+                                                        │
+                                                        ▼
+                                               Top-K Context Articles
+                                                        │
+                                                        ▼
+                                              Gemini RAG Synthesis ──▶ Answer (HTML)
+```
 
 ---
 
@@ -21,22 +89,25 @@ The project is structured following Service-Oriented Architecture (SOA) principl
 
 ```text
 /
-├── src/                        # Google Apps Script source code folder (.gs)
-│   ├── Main.gs                 # Entry point and Dispatcher
-│   ├── appsscript.json         # GAS environment configuration
+├── src/                           # Google Apps Script source code folder (.gs)
+│   ├── Main.gs                    # Entry point, Dispatcher & Trigger Chaining for vector embedding
+│   ├── TelegramBotApp.gs          # Telegram Bot handler with RAG workflow
+│   ├── WebhookDispatcher.gs       # Global doPost() webhook dispatcher with dedup (CacheService)
+│   ├── appsscript.json            # GAS environment configuration
 │   ├── config/
-│   │   └── Config.gs           # System configuration (API keys, Sheet IDs, Endpoints)
+│   │   └── Config.gs              # System configuration (API keys, Endpoints, Supabase, Telegram)
 │   ├── models/
-│   │   └── Models.gs           # Data structures (JSDoc typedefs)
+│   │   └── Models.gs              # Data structures (JSDoc typedefs)
 │   ├── services/
-│   │   ├── GeminiService.gs    # Service for interacting with Gemini AI via JSON structured output
-│   │   ├── MailService.gs      # Service for rendering HTML and sending emails via MailApp
-│   │   ├── NewsService.gs      # Service for fetching news from NewsAPI
-│   │   └── SheetService.gs     # Service for interacting with Google Sheets
+│   │   ├── GeminiService.gs       # Gemini AI: batch analysis, embeddings (768d), RAG synthesis
+│   │   ├── MailService.gs         # HTML email rendering and sending via MailApp
+│   │   ├── NewsService.gs         # Fetching and filtering news from NewsAPI
+│   │   ├── SheetService.gs        # Google Sheets CRUD operations
+│   │   └── SupabaseService.gs     # Supabase REST API: vector upsert & pgvector similarity search
 │   └── utils/
-│       ├── CommonUtils.gs      # Shared utilities (Hash, Normalize, Retry)
-│       └── Logger.gs           # Centralized logging system (Google Apps Script Logger + Console)
-└── .agent-skill/               # 🤖 Special folder containing standard documentation for AI Agents
+│       ├── CommonUtils.gs         # Shared utilities (Hash, Normalize, Retry with Exponential Backoff)
+│       └── Logger.gs              # Centralized logging (Google Apps Script Logger + Console)
+└── .agent-skill/                  # 🤖 Standard documentation for AI Agents
 ```
 
 ---
@@ -55,15 +126,17 @@ The project uses Google's `clasp` tool for code management and synchronization.
 
 To operate the system, access the GAS editor on the web -> **Project Settings** -> **Script Properties** and add the following variables:
 
-- `GEMINI_API_KEY`: API Key for Google Gemini (supporting `gemini-3-flash-preview` and `gemini-embedding-001`).
-- `NEWS_API_KEY`: API Key for NewsAPI.
-- `SPREADSHEET_ID`: ID of the Google Sheet used for storage.
-- `RECIPIENT_EMAIL`: Email address to receive the daily reports.
-- `SUPABASE_URL`: Supabase project REST URL (`https://<project-ref>.supabase.co`).
-- `SUPABASE_KEY`: Supabase `service_role` or `anon` API key.
-- `TELEGRAM_BOT_TOKEN`: Telegram Bot Token from BotFather.
+| Property               | Description                                                                               |
+| ---------------------- | ----------------------------------------------------------------------------------------- |
+| `GEMINI_API_KEY`     | API Key for Google Gemini (supports`gemini-3-flash-preview` & `gemini-embedding-001`) |
+| `NEWS_API_KEY`       | API Key for NewsAPI                                                                       |
+| `SPREADSHEET_ID`     | ID of the Google Sheet used for storage                                                   |
+| `RECIPIENT_EMAIL`    | Email address to receive the daily reports                                                |
+| `SUPABASE_URL`       | Supabase project REST URL (`https://<project-ref>.supabase.co`)                         |
+| `SUPABASE_KEY`       | Supabase`service_role` or `anon` API key                                              |
+| `TELEGRAM_BOT_TOKEN` | Telegram Bot Token from BotFather                                                         |
 
-### 3. Setup Supabase pgvector (RAG Storage)
+### 3. Setup Supabase pgvector (Vector Database)
 
 Execute the following SQL in your Supabase SQL editor to initialize the `articles` table and similarity search RPC function:
 
@@ -121,7 +194,7 @@ export default {
   async fetch(request, env, ctx) {
     // INSERT YOUR GAS WEB APP URL HERE:
     const GAS_URL = "https://script.google.com/macros/s/AKfycbyiZEMj.../exec";
-    
+  
     if (request.method === "POST") {
       const payload = await request.text();
       // Cloudflare automatically follows Google's 302 redirects
@@ -143,11 +216,14 @@ export default {
 
 ### 5. Setup Automation (Triggers)
 
-To run the daily news collection and email dispatch automatically:
+To run the daily news collection, email dispatch, and vector embedding automatically:
 
 1. Go to the **Triggers** section in the left menu of the GAS Editor.
 2. Add a new trigger for the `runTechStreamAgent` function.
 3. Choose the event source as `Time-driven` -> `Day timer` -> Select your preferred time window.
+
+> [!NOTE]
+> The `processPendingQueue` function uses **Trigger Chaining** — it automatically creates a one-time trigger to resume processing if the GAS execution timeout (4.5 min safety margin) is reached. No manual setup is needed for this.
 
 ---
 
@@ -166,6 +242,25 @@ Below is an example of the clean HTML email digest automatically generated and d
 - **Overview (AI Report):** A high-level macro summary of the day's tech landscape synthesized by Gemini.
 - **Quick TL;DR:** A bulleted list of jump-links for rapid scanning.
 - **Top News (High Priority):** Deep-dive summaries categorized by tags (e.g., `Tooling`, `Career`, `General Tech`, `AI`) with clear actionable insights for developers and tech leaders.
+
+---
+
+## 💬 Telegram Bot Demo
+
+<p align="center">
+  <img width="100%" alt="Tech Stream Agent Telegram Bot RAG Demo" src="INSERT_IMAGE_URL_HERE" />
+  <br>
+  <em>Figure 2: Tech Stream Agent answering tech news questions interactively via Telegram Bot.</em>
+</p>
+
+The bot uses a **Tech Stream Agent** persona — dynamic, insightful, and friendly. Key behaviors:
+
+- **Natural Conversational Tone**: Talks like sharing breaking news with a friend, not a formal report.
+- **Inline Citations**: Links are woven into sentences naturally (e.g., "According to `<a href='url'>`this article`</a>`, Apple has...") — no dry "Source:" blocks.
+- **Telegram HTML Formatting**: Responses use `<b>`, `<i>`, and `<a href>` tags optimized for Telegram rendering.
+- **Fallback Safety**: If Telegram rejects HTML due to parse errors, the bot automatically retries with plain text.
+
+---
 
 ## 🤖 Agentic Navigation Portal
 
