@@ -188,14 +188,21 @@ Requirements:
       return "Tôi không tìm thấy thông tin phù hợp trong cơ sở dữ liệu để trả lời câu hỏi này.";
     }
 
-    try {
-      const contextText = contextArticles.map((a, i) => {
-        return `[${i + 1}] Title: ${a.title}\nURL: ${a.url}\nSummary: ${a.summary || ""}\nCategory: ${a.category || ""}\n`;
-      }).join("\n");
+    const contextText = contextArticles.map((a, i) => {
+      return `[${i + 1}] Title: ${a.title}\nURL: ${a.url}\nSummary: ${a.summary || ""}\nCategory: ${a.category || ""}\n`;
+    }).join("\n");
 
-      const prompt = `You are a helpful Tech Assistant. Answer the user's question using ONLY the context provided below.
+    const prompt = `You are a helpful Tech Assistant. Answer the user's question using ONLY the context provided below.
 If the answer cannot be found in the context, politely state that you don't know based on the current knowledge base.
 Provide citations by mentioning the article titles or URLs if useful.
+
+IMPORTANT - Format your answer using ONLY these Telegram-compatible HTML tags:
+- <b>bold</b> for emphasis
+- <i>italic</i> for titles or terms
+- <a href="url">text</a> for links
+- <code>code</code> for inline code
+- <pre>block</pre> for code blocks
+Do NOT use Markdown syntax (no **, *, #, [], ()). Use plain text if unsure.
 
 Context:
 ${contextText}
@@ -204,46 +211,54 @@ User Question: ${query}
 
 Answer in Vietnamese:`;
 
-      const requestBody = {
-        contents: [
-          {
-            role: "user",
-            parts: [{ text: prompt }],
-          },
-        ],
-        generationConfig: {
-          temperature: 0.2, // Low temperature for more factual answers
+    const requestBody = {
+      contents: [
+        {
+          role: "user",
+          parts: [{ text: prompt }],
         },
-      };
+      ],
+      generationConfig: {
+        temperature: 0.2, // Low temperature for more factual answers
+      },
+    };
 
-      const response = CommonUtils.retryRequest(
-        () => {
-          const url = `${Config.GEMINI_API_ENDPOINT}?key=${Config.GEMINI_API_KEY}`;
-          const currentResponse = UrlFetchApp.fetch(url, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            payload: JSON.stringify(requestBody),
-            muteHttpExceptions: true,
-          });
+    const response = CommonUtils.retryRequest(
+      () => {
+        const url = `${Config.GEMINI_API_ENDPOINT}?key=${Config.GEMINI_API_KEY}`;
+        const currentResponse = UrlFetchApp.fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          payload: JSON.stringify(requestBody),
+          muteHttpExceptions: true,
+        });
 
-          const responseCode = currentResponse.getResponseCode();
-          if (responseCode !== 200) {
-            throw new Error(`Gemini RAG Error (${responseCode}): ${currentResponse.getContentText()}`);
-          }
-          return currentResponse;
-        },
-        Config.RETRY_MAX_ATTEMPTS,
-        Config.RETRY_BASE_DELAY_MS
-      );
+        const responseCode = currentResponse.getResponseCode();
+        if (responseCode !== 200) {
+          throw new Error(`Gemini RAG Error (${responseCode}): ${currentResponse.getContentText()}`);
+        }
+        return currentResponse;
+      },
+      Config.RETRY_MAX_ATTEMPTS,
+      Config.RETRY_BASE_DELAY_MS
+    );
 
-      const jsonResponse = JSON.parse(response.getContentText());
-      if (jsonResponse.candidates && jsonResponse.candidates.length > 0) {
-        return jsonResponse.candidates[0].content.parts[0].text;
+    const jsonResponse = JSON.parse(response.getContentText());
+    if (jsonResponse.candidates && jsonResponse.candidates.length > 0) {
+      const candidate = jsonResponse.candidates[0];
+
+      // Handle safety filter / content blocked
+      if (candidate.finishReason && candidate.finishReason !== "STOP" && candidate.finishReason !== "MAX_TOKENS") {
+        AppLogger.warn(task, `Gemini blocked response. finishReason: ${candidate.finishReason}`);
+        return "⚠️ Xin lỗi, câu trả lời không thể được tạo do giới hạn bộ lọc nội dung. Hãy thử hỏi theo cách khác.";
       }
-      return "Xin lỗi, tôi không thể tạo câu trả lời vào lúc này.";
-    } catch (e) {
-      AppLogger.error(task, e);
-      return "Đã xảy ra lỗi khi cố gắng trả lời câu hỏi của bạn.";
+
+      if (candidate.content && candidate.content.parts && candidate.content.parts[0]) {
+        return candidate.content.parts[0].text;
+      }
     }
+
+    AppLogger.warn(task, "No candidates returned from Gemini RAG.");
+    return "Xin lỗi, tôi không thể tạo câu trả lời vào lúc này.";
   }
 };
