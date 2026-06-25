@@ -74,6 +74,14 @@ const CommonUtils = {
         return fn(attempt);
       } catch (error) {
         lastError = error;
+        // Do not retry on permanent client errors (4xx except 429 Rate Limit)
+        const match = String(error.message).match(/\((\d{3})\)/);
+        if (match) {
+          const code = parseInt(match[1], 10);
+          if (code === 400 || code === 401 || code === 403 || code === 404) {
+            break; // Non-retriable, fail immediately
+          }
+        }
         if (attempt < attempts && initialDelay > 0) {
           const waitTime = initialDelay * Math.pow(2, attempt - 1);
           Utilities.sleep(waitTime);
